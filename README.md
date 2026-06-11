@@ -6,3 +6,4 @@ Key tasks performed:
 · Customer clustering (segmentation)
 · Analyzing the performance of different sellers
 · Improving marketing and sales strategies
+· Implemented a Persian text frequency analyzer on comments to extract common terms and customer sentiment.
