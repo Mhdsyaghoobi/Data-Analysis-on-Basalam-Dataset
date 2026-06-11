@@ -1,0 +1,218 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from wordcloud import WordCloud
+from google.colab import files
+import requests
+
+
+reviews = pd.read_excel('review.xlsx')
+products = pd.read_excel('Basalam.product.xlsx')
+
+
+merged_data = pd.merge(reviews, products, on='productid', how='inner')
+
+
+def persian_to_finglish(persian_text):
+
+
+    if pd.isna(persian_text):
+        return ""
+    persian_text = str(persian_text)
+    persian_to_latin = {
+        'ا': 'a', 'آ': 'a', 'ب': 'b', 'پ': 'p', 'ت': 't', 'ث': 's',
+        'ج': 'j', 'چ': 'ch', 'ح': 'h', 'خ': 'kh', 'د': 'd', 'ذ': 'z',
+        'ر': 'r', 'ز': 'z', 'ژ': 'zh', 'س': 's', 'ش': 'sh', 'ص': 's',
+        'ض': 'z', 'ط': 't', 'ظ': 'z', 'ع': 'a', 'غ': 'gh', 'ف': 'f',
+        'ق': 'gh', 'ک': 'k', 'گ': 'g', 'ل': 'l', 'م': 'm', 'ن': 'n',
+        'و': 'v', 'ه': 'h', 'ی': 'y', ' ': ' ', '‌': '', 'ء': '',
+        'ك': 'k', 'ي': 'y'
+    }
+
+    result = ''
+    for char in persian_text:
+        if char in persian_to_latin:
+            result += persian_to_latin[char]
+        else:
+            result += char
+
+    return result
+try:
+    merged_data['description_finglish'] = merged_data['description'].apply(persian_to_finglish)
+
+    all_descriptions = ' '.join(merged_data['description_finglish'].dropna().astype(str))
+
+    wordcloud = WordCloud(
+        width=800,
+        height=400,
+        background_color='white',
+        max_words=100
+    ).generate(all_descriptions)
+
+    plt.figure(figsize=(12, 6))
+    plt.imshow(wordcloud, interpolation='bilinear')
+    plt.axis('off')
+    plt.title('کلمات پرتکرار در نظرات مشتریان (فینگلیش)')
+    plt.show()
+
+
+    print("نمونه‌ای از نظرات تبدیل شده به فینگلیش:")
+    for i, desc in enumerate(merged_data['description_finglish'].head(5)):
+        print(f"{i+1}. {desc}")
+
+except Exception as e:
+    print(f"خطا در ایجاد wordcloud: {e}")
+    print("ادامه تحلیل بدون wordcloud...")
+
+
+
+
+print("توزیع امتیازات:")
+print(merged_data['star'].value_counts())
+print("\nمیانگین امتیاز محصولات:", merged_data['star'].mean())
+
+
+
+
+plt.figure(figsize=(10, 6))
+sns.scatterplot(data=merged_data, x='star', y='sales_count_week')
+plt.title('emtiyaz mahsol v frosh haftaghi:')
+plt.show()
+
+
+
+features = merged_data[['star', 'likeCount', 'dislikeCount', 'sales_count_week', 'price']].dropna()
+scaler = StandardScaler()
+scaled_features = scaler.fit_transform(features)
+
+kmeans = KMeans(n_clusters=3, random_state=42)
+clusters = kmeans.fit_predict(scaled_features)
+
+merged_data['cluster'] = clusters
+print("توزیع خوشه‌ها:")
+print(merged_data['cluster'].value_counts())
+
+
+
+
+top_products = merged_data.groupby('productid').agg({
+    'sales_count_week': 'mean',
+    'star': 'mean',
+    'price': 'mean'
+}).nlargest(10, 'sales_count_week')
+
+print("10 محصول پرفروش:")
+print(top_products)
+
+
+
+
+
+ نمودار فروش هفتگی و قیمت 
+plt.figure(figsize=(8, 4))
+sns.regplot(data=merged_data, x='price', y='sales_count_week', scatter_kws={'alpha':0.3})
+plt.title('The impact of price on sales volume')
+plt.show()
+
+
+
+
+
+vendor_performance = merged_data.groupby('vendor_name').agg({
+    'sales_count_week': 'sum',
+    'star': 'mean',
+    'vendor_score': 'mean'
+}).sort_values('sales_count_week', ascending=False)
+
+print("عملکرد فروشندگان بر اساس فروش:")
+print(vendor_performance.head(10))
+
+
+
+
+merged_data['createdAt'] = pd.to_datetime(merged_data['createdAt'])
+time_series = merged_data.set_index('createdAt')['sales_count_week'].resample('W').sum()
+
+plt.figure(figsize=(8, 4))
+time_series.plot()
+plt.title('Sales trend over time')
+plt.xlabel('time')
+plt.ylabel('Sales')
+plt.show()
+
+
+
+
+from sklearn.cluster import DBSCAN
+
+# اجرای الگوریتم DBSCAN
+# پارامتر eps: حداکثر فاصله بین دو نمونه
+# پارامتر min_samples: حداقل نمونه در همسایگی برای تشکیل یک خوشه
+dbscan = DBSCAN(eps=0.5, min_samples=5)
+dbscan_clusters = dbscan.fit_predict(scaled_features)
+
+# افزودن برچسب خوشه‌ها به داده اصلی
+merged_data['dbscan_cluster'] = dbscan_clusters
+
+# بررسی تعداد خوشه‌های تشکیل شده و نقاط پرت (خوشه با برچسب -۱)
+print("DBSCAN Clusters:", np.unique(dbscan_clusters))
+
+
+
+
+
+from sklearn.mixture import GaussianMixture
+
+# اجرای مدل مخلوط گاوسی
+gmm = GaussianMixture(n_components=3, random_state=42)
+gmm_clusters = gmm.fit_predict(scaled_features)
+
+# افزودن برچسب محتمل‌ترین خوشه به داده اصلی
+merged_data['gmm_cluster'] = gmm_clusters
+
+# امکان دسترسی به احتمالات تعلق هر نقطه به خوشه‌ها
+probabilities = gmm.predict_proba(scaled_features)
+print("Membership Probabilities shape:", probabilities.shape)
+
+
+
+
+
+
+
+
+# محاسبه ارزش طول عمر مشتری
+clv_analysis = merged_data.groupby('user_id').agg({
+    'price': 'sum',
+    'productid': 'count',
+    'star': 'mean',
+    'createdAt': ['min', 'max']
+}).round(2)
+
+clv_analysis.columns = ['کل_خرید', 'تعداد_خرید', 'میانگین_امتیاز', 'اولین_خرید', 'آخرین_خرید']
+
+# محاسبه طول عمر مشتری
+clv_analysis['طول_عمر'] = (clv_analysis['آخرین_خرید'] - clv_analysis['اولین_خرید']).dt.days
+clv_analysis['مقدار_متوسط_خرید'] = clv_analysis['کل_خرید'] / clv_analysis['تعداد_خرید']
+
+print("تحلیل ارزش طول عمر مشتری (10 مشتری برتر):")
+print(clv_analysis.sort_values('کل_خرید', ascending=False).head(10))
+
+
+
+
+
+
+vendor_geo_analysis = merged_data.groupby(['vendor_provinceId', 'vendor_cityId']).agg({
+    'vendor_score': 'mean',
+    'sales_count_week': 'sum',
+    'star': 'mean',
+    'vendor_id': 'count'
+}).rename(columns={'vendor_id': 'تعداد_فروشنده'})
+
+print("تحلیل عملکرد فروشندگان بر اساس منطقه:")
+print(vendor_geo_analysis.sort_values('sales_count_week', ascending=False).head(10))
+
